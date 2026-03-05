@@ -1,0 +1,73 @@
+import { createBrowserRouter, Navigate } from "react-router-dom";
+import { RequireSuperAdmin, RequireTenantUser, RedirectIfAuthenticated } from "./guards";
+import AppLayout from "../components/layout/AppLayout";
+import LoginPage from "../pages/auth/LoginPage";
+import AdminDashboard from "../pages/admin/AdminDashboard";
+import TenantListPage from "../pages/admin/TenantListPage";
+import NewTenantPage from "../pages/admin/NewTenantPage";
+import RolesPage from "../pages/admin/RolesPage";
+import TenantDashboard from "../pages/tenant/TenantDashboard";
+import TenantUsersPage from "../pages/tenant/TenantUsersPage";
+import IntegrationLogsPage from "../pages/tenant/IntegrationLogsPage";
+import MappingSettingsPage from "../pages/tenant/MappingSettingsPage";
+import WorkflowBuilderPage from "../pages/tenant/WorkflowBuilderPage";
+import WorkflowListPage from "../pages/tenant/WorkflowListPage";
+import ApiEndpointsPage from "../pages/tenant/ApiEndpointsPage";
+import PlaceholderPage from "../components/ui/PlaceholderPage";
+
+export const router = createBrowserRouter([
+  {
+    path: "/",
+    element: <Navigate to="/login" replace />,
+  },
+  // Auth routes (redirect if already logged in)
+  {
+    element: <RedirectIfAuthenticated />,
+    children: [
+      { path: "/login", element: <LoginPage /> },
+    ],
+  },
+  // Super Admin routes
+  {
+    path: "/admin",
+    element: (
+      <RequireSuperAdmin>
+        <AppLayout />
+      </RequireSuperAdmin>
+    ),
+    children: [
+      { index: true, element: <AdminDashboard /> },
+      { path: "tenants", element: <TenantListPage /> },
+      { path: "tenants/new", element: <NewTenantPage /> },
+      { path: "roles", element: <RolesPage /> },
+      { path: "logs", element: <PlaceholderPage title="Sistem Logları" /> },
+      { path: "analytics", element: <PlaceholderPage title="Analizler & Raporlar" /> },
+      { path: "settings", element: <PlaceholderPage title="Sistem Ayarları" /> },
+    ],
+  },
+  // Tenant routes
+  {
+    path: "/tenant",
+    element: (
+      <RequireTenantUser>
+        <AppLayout />
+      </RequireTenantUser>
+    ),
+    children: [
+      { index: true, element: <TenantDashboard /> },
+      { path: "users", element: <TenantUsersPage /> },
+      { path: "logs", element: <IntegrationLogsPage /> },
+      { path: "mappings", element: <MappingSettingsPage /> },
+      { path: "workflows", element: <WorkflowListPage /> },
+      { path: "workflows/builder", element: <WorkflowBuilderPage /> },
+      { path: "workflows/builder/:workflowId", element: <WorkflowBuilderPage /> },
+      { path: "api-endpoints", element: <ApiEndpointsPage /> },
+      { path: "settings", element: <PlaceholderPage title="Tenant Ayarları" /> },
+    ],
+  },
+  // Catch-all
+  {
+    path: "*",
+    element: <Navigate to="/login" replace />,
+  },
+]);

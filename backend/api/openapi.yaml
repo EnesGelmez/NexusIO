@@ -1,0 +1,1090 @@
+openapi: 3.0.3
+info:
+  title: NewGen Integration Platform API
+  description: |
+    **NewGen** is a multi-tenant B2B SaaS integration platform that bridges
+    on-premise LOGO ERP installations with e-commerce and B2B systems via a
+    lightweight local Agent software.
+
+    ## Authentication
+    Most endpoints require a **Bearer JWT** obtained from `POST /api/v1/auth/login`.
+    External callers (agents, webhooks) use an **API Key** passed in the
+    `X-API-Key` header.
+
+    ## Multi-tenancy
+    Every resource is scoped to the authenticated user's tenant.
+    Super-admins can manage all tenants.
+
+    ## Seed accounts (development)
+    | Email | Password | Role |
+    |-------|----------|------|
+    | admin@newgen.dev | admin123 | SUPER_ADMIN |
+    | admin@arcelik.com | admin123 | TENANT_ADMIN |
+    | admin@beko.com | admin123 | TENANT_ADMIN |
+
+  version: 1.0.0
+  contact:
+    name: NewGen Platform
+    email: platform@newgen.dev
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Auth
+    description: Authentication and session management
+  - name: Tenants
+    description: Tenant management (SUPER_ADMIN only)
+  - name: Workflows
+    description: Workflow CRUD, enable/disable, execution history
+  - name: Endpoints
+    description: External API endpoint registry
+  - name: Agent
+    description: Local LOGO ERP agent communication
+  - name: Cari Kontrol
+    description: Customer account verification (LOGO ERP)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECURITY SCHEMES
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from POST /api/v1/auth/login
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Tenant-specific API key for agent / external callers
+
+  # ─── Reusable Schemas ──────────────────────────────────────────────────────
+  schemas:
+    # ── Error ─────────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "invalid credentials"
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: admin@newgen.dev
+        password:
+          type: string
+          format: password
+          example: admin123
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+
+    # ── Tenant ────────────────────────────────────────────────────────────────
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          example: tenant-001
+        name:
+          type: string
+          example: "Arçelik Pazarlama A.Ş."
+        subdomain:
+          type: string
+          example: arcelik
+        email:
+          type: string
+          format: email
+          example: entegrasyon@arcelik.com
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, TRIAL]
+        plan:
+          type: string
+          example: Enterprise
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateTenantRequest:
+      type: object
+      required: [name, subdomain, email, plan]
+      properties:
+        name:
+          type: string
+        subdomain:
+          type: string
+        email:
+          type: string
+          format: email
+        plan:
+          type: string
+          example: Starter
+
+    # ── User ──────────────────────────────────────────────────────────────────
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [SUPER_ADMIN, TENANT_ADMIN, VIEWER]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Workflow ──────────────────────────────────────────────────────────────
+    WorkflowNode:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          example: cariKontrol
+        label:
+          type: string
+        position:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+        config:
+          type: object
+          additionalProperties: true
+
+    WorkflowEdge:
+      type: object
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        sourceHandle:
+          type: string
+        target:
+          type: string
+        targetHandle:
+          type: string
+
+    WorkflowStats:
+      type: object
+      properties:
+        totalRuns:
+          type: integer
+          format: int64
+        successRuns:
+          type: integer
+          format: int64
+        failedRuns:
+          type: integer
+          format: int64
+        avgDurationMs:
+          type: number
+          format: double
+        lastDayRuns:
+          type: integer
+          format: int64
+        lastDaySuccess:
+          type: integer
+          format: int64
+        lastDayFailed:
+          type: integer
+          format: int64
+        trend:
+          type: string
+          enum: [up, down, neutral]
+
+    Workflow:
+      type: object
+      properties:
+        id:
+          type: string
+          example: wf-001
+        tenantId:
+          type: string
+        name:
+          type: string
+          example: "Sipariş Entegrasyonu"
+        description:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+        trigger:
+          type: string
+          example: webhook
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowEdge'
+        stats:
+          $ref: '#/components/schemas/WorkflowStats'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateWorkflowRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        trigger:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowEdge'
+
+    # ── WorkflowRun ───────────────────────────────────────────────────────────
+    WorkflowRun:
+      type: object
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        tenantId:
+          type: string
+        status:
+          type: string
+          enum: [RUNNING, SUCCESS, FAILED]
+        durationMs:
+          type: integer
+          format: int64
+        payload:
+          type: object
+          additionalProperties: true
+        result:
+          type: object
+          additionalProperties: true
+        errorMsg:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    # ── ApiEndpoint ───────────────────────────────────────────────────────────
+    EndpointParam:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          example: string
+        required:
+          type: boolean
+        description:
+          type: string
+
+    ApiEndpoint:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        method:
+          type: string
+          enum: [GET, POST, PUT, DELETE]
+        path:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        auth:
+          type: string
+          enum: [API_KEY, BEARER, NONE]
+        category:
+          type: string
+        parameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/EndpointParam'
+        testMode:
+          type: boolean
+        callCount:
+          type: integer
+          format: int64
+        lastCalledAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Agent ─────────────────────────────────────────────────────────────────
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        hostname:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+          enum: [ONLINE, OFFLINE]
+        lastHeartbeat:
+          type: string
+          format: date-time
+          nullable: true
+        registeredAt:
+          type: string
+          format: date-time
+
+    AgentHeartbeatRequest:
+      type: object
+      required: [version, hostname]
+      properties:
+        version:
+          type: string
+          example: "1.2.3"
+        hostname:
+          type: string
+          example: "LOGO-SERVER-01"
+
+    AgentProcessRequest:
+      type: object
+      required: [runId, model]
+      properties:
+        runId:
+          type: string
+        model:
+          type: object
+          additionalProperties: true
+          example:
+            cariKod: "MUS-0042"
+            cariKontrolEdilecekMi: true
+
+    AgentProcessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        cariMevcut:
+          type: boolean
+        result:
+          type: object
+          additionalProperties: true
+        errorMessage:
+          type: string
+
+    # ── Cari Kontrol ──────────────────────────────────────────────────────────
+    CariKontrolRequest:
+      type: object
+      required: [cariKod]
+      properties:
+        cariKod:
+          type: string
+          description: LOGO ERP'deki müşteri cari kodu
+          example: "MUS-0042"
+
+    CariKontrolResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        cariKontrolEdilecekMi:
+          type: boolean
+          example: true
+        cariKod:
+          type: string
+          example: "MUS-0042"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+  # ── Health ──────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [Auth]
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+  /api/v1/auth/login:
+    post:
+      summary: Login
+      description: Authenticate with email/password and receive a JWT token.
+      operationId: login
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/logout:
+    post:
+      summary: Logout
+      description: Client-side token invalidation (stateless server).
+      operationId: logout
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+
+  /api/v1/auth/me:
+    get:
+      summary: Current user info
+      operationId: me
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user claims
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                  tenantId:
+                    type: string
+                  role:
+                    type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ── Tenants ─────────────────────────────────────────────────────────────────
+  /api/v1/tenants:
+    get:
+      summary: List all tenants
+      operationId: listTenants
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of tenants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tenant'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+    post:
+      summary: Create tenant
+      operationId: createTenant
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '201':
+          description: Created tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+
+  /api/v1/tenants/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get tenant by ID
+      operationId: getTenant
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Tenant detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    put:
+      summary: Update tenant
+      operationId: updateTenant
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '200':
+          description: Updated tenant
+    delete:
+      summary: Delete tenant
+      operationId: deleteTenant
+      tags: [Tenants]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+
+  # ── Workflows ───────────────────────────────────────────────────────────────
+  /api/v1/workflows:
+    get:
+      summary: List workflows
+      description: Returns all workflows for the current tenant.
+      operationId: listWorkflows
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Workflow list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Workflow'
+    post:
+      summary: Create workflow
+      operationId: createWorkflow
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRequest'
+      responses:
+        '201':
+          description: Created workflow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+
+  /api/v1/workflows/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get workflow
+      operationId: getWorkflow
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Workflow detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+    put:
+      summary: Update workflow
+      operationId: updateWorkflow
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRequest'
+      responses:
+        '200':
+          description: Updated workflow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+    delete:
+      summary: Delete workflow
+      operationId: deleteWorkflow
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+
+  /api/v1/workflows/{id}/enable:
+    patch:
+      summary: Enable workflow
+      operationId: enableWorkflow
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workflow enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+
+  /api/v1/workflows/{id}/disable:
+    patch:
+      summary: Disable workflow
+      operationId: disableWorkflow
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workflow disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+
+  /api/v1/workflows/{id}/runs:
+    get:
+      summary: Execution history
+      description: Returns the last 50 runs for a workflow.
+      operationId: getWorkflowRuns
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Run history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowRun'
+
+  /api/v1/workflows/{id}/trigger:
+    post:
+      summary: Manually trigger workflow
+      description: |
+        Triggers a workflow run and returns the built **Agent Model**.
+
+        The service scans the workflow's node list:
+        - If a `custom_cari_check` node exists → `agentModel.cariKontrolEdilecekMi = true`
+        - Otherwise → `false`
+
+        This model is what would be forwarded to the on-premise Agent for actual ERP processing.
+      operationId: triggerWorkflow
+      tags: [Workflows]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Optional payload (e.g. cariKod, siparisNo) to merge into the agent model
+              additionalProperties: true
+            example:
+              cariKod: "MUS-0042"
+              siparisNo: "SP-2026-001"
+      responses:
+        '202':
+          description: Workflow triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [RUNNING, SUCCESS, FAILED]
+                  workflowId:
+                    type: string
+                  agentModel:
+                    type: object
+                    description: The model that would be forwarded to the on-premise Agent
+                    properties:
+                      cariKontrolEdilecekMi:
+                        type: boolean
+                        description: true if workflow contains a custom_cari_check node
+                      workflowId:
+                        type: string
+                      triggeredAt:
+                        type: string
+                        format: date-time
+                    additionalProperties: true
+              example:
+                runId: "run-abc-123"
+                status: "SUCCESS"
+                workflowId: "wf-001"
+                agentModel:
+                  cariKod: "MUS-0042"
+                  siparisNo: "SP-2026-001"
+                  cariKontrolEdilecekMi: true
+                  workflowId: "wf-001"
+                  triggeredAt: "2026-03-05T10:00:00Z"
+
+  # ── API Endpoints ────────────────────────────────────────────────────────────
+  /api/v1/endpoints:
+    get:
+      summary: List API endpoints
+      operationId: listEndpoints
+      tags: [Endpoints]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Endpoint list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiEndpoint'
+    post:
+      summary: Create API endpoint
+      operationId: createEndpoint
+      tags: [Endpoints]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiEndpoint'
+      responses:
+        '201':
+          description: Created endpoint
+
+  /api/v1/endpoints/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get endpoint
+      operationId: getEndpoint
+      tags: [Endpoints]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Endpoint detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiEndpoint'
+    delete:
+      summary: Delete endpoint
+      operationId: deleteEndpoint
+      tags: [Endpoints]
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Deleted
+
+  /api/v1/endpoints/{id}/enable:
+    patch:
+      summary: Enable endpoint
+      operationId: enableEndpoint
+      tags: [Endpoints]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Endpoint enabled
+
+  /api/v1/endpoints/{id}/disable:
+    patch:
+      summary: Disable endpoint
+      operationId: disableEndpoint
+      tags: [Endpoints]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Endpoint disabled
+
+  # ── Cari Kontrol ─────────────────────────────────────────────────────────────
+  /api/v1/cari-kontrol:
+    post:
+      summary: Cari Kontrol (Müşteri Hesap Kontrolü)
+      description: |
+        Verilen cari kodunun LOGO ERP'de kayıtlı olup olmadığını kontrol eder.
+
+        Bu endpoint dışarıdan API Key ile çağrılabilir. Talep Agent'a
+        `cariKontrolEdilecekMi: true` model bayrağıyla iletilir.
+      operationId: cariKontrol
+      tags: [Cari Kontrol]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CariKontrolRequest'
+            example:
+              cariKod: "MUS-0042"
+      responses:
+        '200':
+          description: Kontrol başarılı
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CariKontrolResponse'
+              example:
+                success: true
+                cariKontrolEdilecekMi: true
+                cariKod: "MUS-0042"
+        '400':
+          description: Geçersiz istek
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ── Agent ────────────────────────────────────────────────────────────────────
+  /api/v1/agent/status:
+    get:
+      summary: Agent status
+      description: Returns the current connection status of the tenant's local agent.
+      operationId: agentStatus
+      tags: [Agent]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Agent status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+
+  /api/v1/agent/heartbeat:
+    post:
+      summary: Agent heartbeat
+      description: Called periodically by the local agent to signal it is alive.
+      operationId: agentHeartbeat
+      tags: [Agent]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentHeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat acknowledged
+
+  /api/v1/agent/process:
+    post:
+      summary: Process model (Agent)
+      description: |
+        Cloud sends a model payload to the local agent for processing
+        (e.g., running a Cari Kontrol check against LOGO ERP).
+      operationId: agentProcess
+      tags: [Agent]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentProcessRequest'
+            example:
+              runId: "run-xyz-001"
+              model:
+                cariKod: "MUS-0042"
+                cariKontrolEdilecekMi: true
+      responses:
+        '200':
+          description: Processing result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProcessResponse'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REUSABLE RESPONSES
+# ─────────────────────────────────────────────────────────────────────────────
+  responses:
+    UnauthorizedError:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ForbiddenError:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
