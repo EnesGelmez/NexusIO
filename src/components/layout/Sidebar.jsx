@@ -107,7 +107,7 @@ export default function Sidebar() {
       <div className="px-5 py-3">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 uppercase tracking-wider">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          {isSuperAdmin() ? "Super Admin" : user?.tenantName || "Tenant"}
+          {isSuperAdmin() ? "Super Admin" : user?.tenantName || "Organizasyon"}
         </span>
       </div>
 

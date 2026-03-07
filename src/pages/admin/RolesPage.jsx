@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Shield, Check, X, Plus, Edit2, Users, Trash2, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
-import { mockRoles } from "../../lib/mockData";
+import { useAuthStore } from "../../store/authStore";
+
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
 const PERMISSION_MODULES = [
   { key: "dashboard", label: "Dashboard" },
@@ -147,28 +149,62 @@ function RoleModal({ role, onClose, onSave }) {
 }
 
 export default function RolesPage() {
-  const [roles, setRoles] = useState(mockRoles);
-  const [selectedRole, setSelectedRole] = useState(mockRoles[0]);
+  const token = useAuthStore((s) => s.token);
+  const [roles, setRoles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedRole, setSelectedRole] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState(null);
+  const [error, setError] = useState("");
 
-  const handleCreate = (data) => {
-    const newRole = { id: `role-${Date.now()}`, userCount: 0, ...data };
-    setRoles((prev) => [...prev, newRole]);
-    setCreateModalOpen(false);
+  const loadRoles = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/roles`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [];
+        setRoles(list);
+        if (list.length > 0) setSelectedRole((prev) => list.find((r) => r.id === prev?.id) ?? list[0]);
+      } else {
+        setError("Roller yüklenemedi.");
+      }
+    } catch {
+      setError("Sunucuya bağlanılamadı.");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleEdit = (data) => {
-    const updated = roles.map((r) => (r.id === editingRole.id ? { ...r, ...data } : r));
-    setRoles(updated);
-    if (selectedRole.id === editingRole.id) setSelectedRole({ ...editingRole, ...data });
-    setEditingRole(null);
+  useEffect(() => { loadRoles(); }, [token]);
+
+  const handleCreate = async (data) => {
+    const res = await fetch(`${API_BASE}/api/v1/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) { setCreateModalOpen(false); loadRoles(); }
   };
 
-  const handleDelete = (roleId) => {
-    const updated = roles.filter((r) => r.id !== roleId);
-    setRoles(updated);
-    if (selectedRole.id === roleId && updated.length > 0) setSelectedRole(updated[0]);
+  const handleEdit = async (data) => {
+    const res = await fetch(`${API_BASE}/api/v1/roles/${editingRole.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) { setEditingRole(null); loadRoles(); }
+  };
+
+  const handleDelete = async (roleId) => {
+    const res = await fetch(`${API_BASE}/api/v1/roles/${roleId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) { loadRoles(); }
   };
 
   return (
@@ -186,6 +222,11 @@ export default function RolesPage() {
         </Button>
       </div>
 
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {loading ? (
+        <div className="py-16 text-center text-sm text-muted-foreground">Yükleniyor…</div>
+      ) : (
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Role list */}
         <div className="space-y-3">
@@ -197,14 +238,14 @@ export default function RolesPage() {
               key={role.id}
               onClick={() => setSelectedRole(role)}
               className={`w-full rounded-xl border p-4 text-left transition-all ${
-                selectedRole.id === role.id
+                selectedRole?.id === role.id
                   ? "border-primary bg-primary/5 shadow-sm"
                   : "border-border bg-white hover:bg-muted/30"
               }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2.5">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${selectedRole.id === role.id ? "bg-primary text-primary-foreground" : "bg-slate-100 text-slate-600"}`}>
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${selectedRole?.id === role.id ? "bg-primary text-primary-foreground" : "bg-slate-100 text-slate-600"}`}>
                     <Shield size={15} />
                   </div>
                   <div>
@@ -216,14 +257,16 @@ export default function RolesPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setEditingRole(role); }}
-                    className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors"
-                    title="Düzenle"
-                  >
-                    <Edit2 size={12} />
-                  </button>
-                  {role.userCount === 0 && (
+                  {!role.isSystem && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingRole(role); }}
+                      className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors"
+                      title="Düzenle"
+                    >
+                      <Edit2 size={12} />
+                    </button>
+                  )}
+                  {!role.isSystem && role.userCount === 0 && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(role.id); }}
                       className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
@@ -240,7 +283,7 @@ export default function RolesPage() {
         </div>
 
         {/* Permission matrix */}
-        <div className="xl:col-span-2">
+        {selectedRole && <div className="xl:col-span-2">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -256,10 +299,12 @@ export default function RolesPage() {
                     <Users size={10} />
                     {selectedRole.userCount} kullanıcı
                   </Badge>
-                  <Button size="sm" variant="outline" onClick={() => setEditingRole(selectedRole)}>
-                    <Edit2 size={13} />
-                    Düzenle
-                  </Button>
+                  {!selectedRole.isSystem && (
+                    <Button size="sm" variant="outline" onClick={() => setEditingRole(selectedRole)}>
+                      <Edit2 size={13} />
+                      Düzenle
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -320,8 +365,9 @@ export default function RolesPage() {
               ))}
             </div>
           </div>
-        </div>
+        </div>}
       </div>
+      )}
 
       {createModalOpen && <RoleModal onClose={() => setCreateModalOpen(false)} onSave={handleCreate} />}
       {editingRole && <RoleModal role={editingRole} onClose={() => setEditingRole(null)} onSave={handleEdit} />}

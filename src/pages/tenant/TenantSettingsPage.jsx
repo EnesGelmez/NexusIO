@@ -38,9 +38,9 @@ export default function TenantSettingsPage() {
   return (
     <div className="p-6 space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-xl font-bold text-foreground">Tenant Ayarları</h1>
+        <h1 className="text-xl font-bold text-foreground">Hesap Ayarları</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Entegrasyon kimlik bilgileriniz ve tenant bilgileriniz
+          Entegrasyon kimlik bilgileriniz ve hesap bilgileriniz
         </p>
       </div>
 
@@ -65,7 +65,7 @@ export default function TenantSettingsPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Building2 size={16} className="text-muted-foreground" />
-                <CardTitle className="text-sm">Tenant Bilgileri</CardTitle>
+                <CardTitle className="text-sm">Hesap Bilgileri</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">

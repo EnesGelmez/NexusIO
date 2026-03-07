@@ -34,7 +34,12 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	user, err := h.svc.Create(r.Context(), claims.TenantID, req)
+	// SUPER_ADMIN can explicitly set tenantId in the request body
+	tenantID := claims.TenantID
+	if tenantID == "" && req.TenantID != "" {
+		tenantID = req.TenantID
+	}
+	user, err := h.svc.Create(r.Context(), tenantID, req)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -44,13 +49,14 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/v1/users/{id}
 func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
 	var req service.UpdateUserRequest
 	if err := decode(r, &req); err != nil {
 		respondError(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	user, err := h.svc.Update(r.Context(), id, req)
+	user, err := h.svc.Update(r.Context(), claims.TenantID, id, req)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
@@ -60,8 +66,9 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/v1/users/{id}
 func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
-	if err := h.svc.Delete(r.Context(), id); err != nil {
+	if err := h.svc.Delete(r.Context(), claims.TenantID, id); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -70,8 +77,9 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // PATCH /api/v1/users/{id}/toggle
 func (h *UserHandler) Toggle(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
-	user, err := h.svc.ToggleActive(r.Context(), id)
+	user, err := h.svc.ToggleActive(r.Context(), claims.TenantID, id)
 	if err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return

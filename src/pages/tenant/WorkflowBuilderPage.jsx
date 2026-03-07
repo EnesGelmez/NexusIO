@@ -340,6 +340,47 @@ function JsonSchemaPanel({ node, onConfigChange }) {
   );
 }
 
+/* -------- Save Warning Modal -------- */
+function SaveWarningModal({ warnings, onSaveAnyway, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-border overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
+            <Info size={17} className="text-amber-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Kaydedilmeden Önce Kontrol Et</p>
+            <p className="text-xs text-muted-foreground">Bazı bileşenler eksik yapılandırmaya sahip</p>
+          </div>
+        </div>
+        <div className="px-5 py-4 space-y-2">
+          {warnings.map((w, i) => (
+            <div key={i} className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-amber-400 text-white text-[9px] font-bold">{i + 1}</span>
+              <p className="text-xs text-amber-800 leading-relaxed">{w}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-border">
+          <button
+            onClick={onCancel}
+            className="rounded-lg border border-border px-4 py-1.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
+          >
+            Geri Dön ve Düzelt
+          </button>
+          <button
+            onClick={onSaveAnyway}
+            className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-amber-600 transition-colors"
+          >
+            Yine de Kaydet
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* -------- ModelMappingPanel -------- */
 function ModelMappingPanel({ node, nodes, connections, onConfigChange }) {
   const models = loadLocalModels();
@@ -767,6 +808,7 @@ export default function WorkflowBuilderPage() {
   const [draggingWire, setDraggingWire] = useState(null);
   const [workflowName, setWorkflowName] = useState("Yeni Workflow");
   const [saved, setSaved] = useState(false);
+  const [saveWarnings, setSaveWarnings] = useState(null); // null | string[]
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [expandedCats, setExpandedCats] = useState(
@@ -946,12 +988,50 @@ export default function WorkflowBuilderPage() {
     setSelectedNodeId(null);
   };
 
-  const handleSave = async () => {
+  /* Build the set of node IDs that are reachable (have at least one incoming connection) */
+  const connectedNodeIds = new Set(connections.map((c) => c.toId));
+
+  const validateWorkflow = () => {
+    const warns = [];
+    for (const node of nodes) {
+      if (node.type === "model_mapping") {
+        const modelId = node.config?.targetModelId ?? "";
+        const mappings = node.config?.mappings ?? {};
+        const label = node.config?.label || "Model Eşleştirme";
+        if (!modelId) {
+          warns.push(`"${label}" bileşeninde hedef model seçilmemiş. Lütfen bir model seçin.`);
+        } else {
+          const filledCount = Object.values(mappings).filter((v) => v && String(v).trim() !== "").length;
+          if (filledCount === 0) {
+            warns.push(`"${label}" bileşeninde hiç alan eşleştirmesi yapılmamış. Boş eşleştirme agent'a boş model gönderir.`);
+          }
+        }
+      }
+      if (node.type === "agent_request" && !connectedNodeIds.has(node.id)) {
+        warns.push(`"Agent İsteği" bileşeni hiçbir bileşene bağlı değil — tetiklenince çalışmaz.`);
+      }
+      if (node.type === "transform_validate" && !connectedNodeIds.has(node.id)) {
+        warns.push(`"Doğrulama" bileşeni bağlı değil — kontroller çalışmayacak.`);
+      }
+    }
+    return warns;
+  };
+
+  const doSave = async () => {
     if (workflowId) {
       await saveWorkflow(workflowId, { name: workflowName, nodes, connections });
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+  };
+
+  const handleSave = async () => {
+    const warns = validateWorkflow();
+    if (warns.length > 0) {
+      setSaveWarnings(warns);
+      return;
+    }
+    await doSave();
   };
 
   const toggleCat = (cat) => setExpandedCats((p) => ({ ...p, [cat]: !p[cat] }));
@@ -1277,6 +1357,13 @@ export default function WorkflowBuilderPage() {
         <TemplateModal onClose={() => setTemplateModalOpen(false)} onSelect={handleLoadTemplate} />
       )}
       {helpModalOpen && <HelpModal onClose={() => setHelpModalOpen(false)} />}
+      {saveWarnings && (
+        <SaveWarningModal
+          warnings={saveWarnings}
+          onCancel={() => setSaveWarnings(null)}
+          onSaveAnyway={async () => { setSaveWarnings(null); await doSave(); }}
+        />
+      )}
     </div>
   );
 }

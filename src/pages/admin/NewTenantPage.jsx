@@ -1,5 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuthStore } from "../../store/authStore";
+
+const API = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+
+const toSubdomain = (name) =>
+  name
+    .toLowerCase()
+    .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s")
+    .replace(/ı/g, "i").replace(/ö/g, "o").replace(/ç/g, "c")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 import {
   Building2,
   User,
@@ -25,9 +36,11 @@ const STEPS = [
 
 export default function NewTenantPage() {
   const navigate = useNavigate();
+  const token = useAuthStore((s) => s.token);
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [generatedCredentials, setGeneratedCredentials] = useState(null);
 
   const [form, setForm] = useState({
@@ -56,17 +69,58 @@ export default function NewTenantPage() {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    // Simulate API call
-    await new Promise((r) => setTimeout(r, 1500));
-    const tenantId = "T" + Math.random().toString(36).slice(2, 8).toUpperCase();
-    const tempPass = Math.random().toString(36).slice(2, 10) + "!A1";
-    setGeneratedCredentials({
-      tenantId,
-      email: form.adminEmail,
-      tempPassword: tempPass,
-    });
-    setIsSubmitting(false);
-    setSubmitted(true);
+    setSubmitError("");
+    // Generate a temp password: 8 random chars + fixed suffix for complexity
+    const pool = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    const tempPass =
+      Array.from({ length: 8 }, () => pool[Math.floor(Math.random() * pool.length)]).join("") +
+      "!1";
+    try {
+      // 1. Create tenant
+      const tRes = await fetch(`${API}/api/v1/tenants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: form.companyName,
+          subdomain: toSubdomain(form.companyName),
+          email: form.adminEmail,
+          plan: form.plan,
+        }),
+      });
+      const tData = await tRes.json();
+      if (!tRes.ok) {
+        setSubmitError(tData.error ?? "Tenant oluşturulamadı.");
+        return;
+      }
+      // 2. Create admin user for the new tenant
+      const uRes = await fetch(`${API}/api/v1/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: form.adminName,
+          email: form.adminEmail,
+          role: "TENANT_ADMIN",
+          password: tempPass,
+          tenantId: tData.id,
+        }),
+      });
+      const uData = await uRes.json();
+      if (!uRes.ok) {
+        setSubmitError(uData.error ?? "Admin kullanıcı oluşturulamadı.");
+        return;
+      }
+      setGeneratedCredentials({
+        tenantId: tData.id,
+        apiKey: tData.apiKey,
+        email: form.adminEmail,
+        tempPassword: tempPass,
+      });
+      setSubmitted(true);
+    } catch {
+      setSubmitError("Sunucuya bağlanılamadı.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (submitted) {
@@ -92,6 +146,7 @@ export default function NewTenantPage() {
             </div>
             {[
               { label: "Tenant ID", value: generatedCredentials.tenantId },
+              { label: "API Key", value: generatedCredentials.apiKey, mono: true },
               { label: "Admin E-posta", value: generatedCredentials.email },
               { label: "Geçici Şifre", value: generatedCredentials.tempPassword, mono: true },
             ].map((item) => (
@@ -384,6 +439,11 @@ export default function NewTenantPage() {
               </div>
             ))}
 
+            {submitError && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+                {submitError}
+              </p>
+            )}
             <div className="flex justify-between pt-2">
               <Button variant="outline" onClick={() => setStep(3)}>Geri</Button>
               <Button onClick={handleSubmit} loading={isSubmitting} variant="success">

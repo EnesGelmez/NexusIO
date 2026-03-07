@@ -42,10 +42,15 @@ func (h *WorkflowHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/workflows/{id}
 func (h *WorkflowHandler) Get(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
 	wf, err := h.svc.Get(r.Context(), id)
 	if err != nil {
 		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if wf.TenantID != claims.TenantID {
+		respondError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	respond(w, http.StatusOK, wf)
@@ -69,13 +74,14 @@ func (h *WorkflowHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/v1/workflows/{id}
 func (h *WorkflowHandler) Update(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
 	var req service.SaveWorkflowRequest
 	if err := decode(r, &req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	wf, err := h.svc.Update(r.Context(), id, req)
+	wf, err := h.svc.Update(r.Context(), claims.TenantID, id, req)
 	if err != nil {
 		respondError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -85,8 +91,9 @@ func (h *WorkflowHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 // PATCH /api/v1/workflows/{id}/enable
 func (h *WorkflowHandler) Enable(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
-	wf, err := h.svc.SetEnabled(r.Context(), id, true)
+	wf, err := h.svc.SetEnabled(r.Context(), claims.TenantID, id, true)
 	if err != nil {
 		respondError(w, http.StatusNotFound, err.Error())
 		return
@@ -96,8 +103,9 @@ func (h *WorkflowHandler) Enable(w http.ResponseWriter, r *http.Request) {
 
 // PATCH /api/v1/workflows/{id}/disable
 func (h *WorkflowHandler) Disable(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
-	wf, err := h.svc.SetEnabled(r.Context(), id, false)
+	wf, err := h.svc.SetEnabled(r.Context(), claims.TenantID, id, false)
 	if err != nil {
 		respondError(w, http.StatusNotFound, err.Error())
 		return
@@ -107,8 +115,9 @@ func (h *WorkflowHandler) Disable(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/v1/workflows/{id}
 func (h *WorkflowHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
-	if err := h.svc.Delete(r.Context(), id); err != nil {
+	if err := h.svc.Delete(r.Context(), claims.TenantID, id); err != nil {
 		respondError(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -117,10 +126,11 @@ func (h *WorkflowHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/workflows/{id}/runs
 func (h *WorkflowHandler) Runs(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
 	limitStr := r.URL.Query().Get("limit")
 	limit, _ := strconv.Atoi(limitStr)
-	runs, err := h.svc.GetRuns(r.Context(), id, limit)
+	runs, err := h.svc.GetRuns(r.Context(), claims.TenantID, id, limit)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -148,10 +158,15 @@ func (h *WorkflowHandler) ListRuns(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/runs/{id}
 // Returns the full execution record for a single run including payload and result.
 func (h *WorkflowHandler) GetRun(w http.ResponseWriter, r *http.Request) {
+	claims := claimsFromContext(r.Context())
 	id := r.PathValue("id")
 	run, err := h.svc.GetRunByID(r.Context(), id)
 	if err != nil {
 		respondError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if run.TenantID != claims.TenantID {
+		respondError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	respond(w, http.StatusOK, run)

@@ -217,28 +217,32 @@ func (s *TenantAgentService) GenerateSecret() string {
 	return "agt-" + uuid.New().String()
 }
 
-// ─── UserService ──────────────────────────────────────────────────────────────
+// --- UserService -------------------------------------------------------------
 
 type UserService struct {
-	repo domain.UserRepository
+	repo  domain.UserRepository
+	roles domain.RoleRepository
 }
 
-func NewUserService(repo domain.UserRepository) *UserService {
-	return &UserService{repo: repo}
+func NewUserService(repo domain.UserRepository, roles domain.RoleRepository) *UserService {
+	return &UserService{repo: repo, roles: roles}
 }
 
-// CreateUserRequest is the body for tenant-admin creating a new user.
+// CreateUserRequest is the body for creating a new user.
 type CreateUserRequest struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
-	Role     string `json:"role"`
+	RoleID   string `json:"roleId"`   // preferred: UUID FK to roles.id
+	Role     string `json:"role"`     // legacy: role name (e.g. "VIEWER"); used if RoleID is empty
 	Password string `json:"password"`
+	TenantID string `json:"tenantId"` // SUPER_ADMIN only: create user in a specific tenant
 }
 
 // UpdateUserRequest is the body for editing an existing user.
 type UpdateUserRequest struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
+	Name   string `json:"name"`
+	RoleID string `json:"roleId"` // preferred
+	Role   string `json:"role"`   // legacy
 }
 
 func (s *UserService) List(ctx context.Context, tenantID string) ([]domain.User, error) {
@@ -252,6 +256,42 @@ func (s *UserService) List(ctx context.Context, tenantID string) ([]domain.User,
 	return users, nil
 }
 
+func (s *UserService) resolveRoleID(ctx context.Context, tenantID, roleID, roleName string) (string, error) {
+	// If a UUID roleId was supplied, validate it exists and is accessible.
+	if roleID != "" {
+		r, err := s.roles.FindByID(ctx, roleID)
+		if err != nil {
+			return "", fmt.Errorf("rol bulunamadı: %w", err)
+		}
+		// Block elevation to SUPER_ADMIN from tenant context
+		if r.Name == string(domain.UserRoleSuperAdmin) && tenantID != "" {
+			return "", fmt.Errorf("bu rol atanamaz")
+		}
+		// Block assigning another tenant's custom role
+		if r.TenantID != "" && r.TenantID != tenantID {
+			return "", fmt.Errorf("bu rol bu hesaba ait değil")
+		}
+		return roleID, nil
+	}
+	// Fallback: resolve from role name string (backward compat)
+	if roleName == "" {
+		roleName = string(domain.UserRoleViewer)
+	}
+	if domain.UserRole(roleName) == domain.UserRoleSuperAdmin && tenantID != "" {
+		roleName = string(domain.UserRoleViewer)
+	}
+	allRoles, err := s.roles.FindAll(ctx, tenantID)
+	if err != nil {
+		return "", fmt.Errorf("rol listesi alınamadı: %w", err)
+	}
+	for _, r := range allRoles {
+		if r.Name == roleName {
+			return r.ID, nil
+		}
+	}
+	return "", fmt.Errorf("rol bulunamadı: %s", roleName)
+}
+
 func (s *UserService) Create(ctx context.Context, tenantID string, req CreateUserRequest) (*domain.User, error) {
 	if req.Name == "" || req.Email == "" || req.Password == "" {
 		return nil, fmt.Errorf("ad, e-posta ve şifre zorunludur")
@@ -260,9 +300,9 @@ func (s *UserService) Create(ctx context.Context, tenantID string, req CreateUse
 	if err != nil {
 		return nil, err
 	}
-	role := domain.UserRole(req.Role)
-	if role == "" {
-		role = domain.UserRoleViewer
+	roleID, err := s.resolveRoleID(ctx, tenantID, req.RoleID, req.Role)
+	if err != nil {
+		return nil, err
 	}
 	u := &domain.User{
 		ID:                 uuid.New().String(),
@@ -270,7 +310,7 @@ func (s *UserService) Create(ctx context.Context, tenantID string, req CreateUse
 		Name:               req.Name,
 		Email:              req.Email,
 		PasswordHash:       string(hash),
-		Role:               role,
+		RoleID:             roleID,
 		IsActive:           true,
 		MustChangePassword: true,
 	}
@@ -280,16 +320,23 @@ func (s *UserService) Create(ctx context.Context, tenantID string, req CreateUse
 	return u, nil
 }
 
-func (s *UserService) Update(ctx context.Context, id string, req UpdateUserRequest) (*domain.User, error) {
+func (s *UserService) Update(ctx context.Context, tenantID, id string, req UpdateUserRequest) (*domain.User, error) {
 	u, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	if u.TenantID != tenantID {
+		return nil, fmt.Errorf("forbidden")
+	}
 	if req.Name != "" {
 		u.Name = req.Name
 	}
-	if req.Role != "" {
-		u.Role = domain.UserRole(req.Role)
+	if req.RoleID != "" || req.Role != "" {
+		roleID, err := s.resolveRoleID(ctx, tenantID, req.RoleID, req.Role)
+		if err != nil {
+			return nil, err
+		}
+		u.RoleID = roleID
 	}
 	if err := s.repo.Update(ctx, u); err != nil {
 		return nil, err
@@ -297,14 +344,24 @@ func (s *UserService) Update(ctx context.Context, id string, req UpdateUserReque
 	return u, nil
 }
 
-func (s *UserService) Delete(ctx context.Context, id string) error {
+func (s *UserService) Delete(ctx context.Context, tenantID, id string) error {
+	u, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if u.TenantID != tenantID {
+		return fmt.Errorf("forbidden")
+	}
 	return s.repo.Delete(ctx, id)
 }
 
-func (s *UserService) ToggleActive(ctx context.Context, id string) (*domain.User, error) {
+func (s *UserService) ToggleActive(ctx context.Context, tenantID, id string) (*domain.User, error) {
 	u, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if u.TenantID != tenantID {
+		return nil, fmt.Errorf("forbidden")
 	}
 	u.IsActive = !u.IsActive
 	if err := s.repo.Update(ctx, u); err != nil {
@@ -357,10 +414,13 @@ func (s *WorkflowService) Create(ctx context.Context, tenantID string, req SaveW
 	return w, nil
 }
 
-func (s *WorkflowService) Update(ctx context.Context, id string, req SaveWorkflowRequest) (*domain.Workflow, error) {
+func (s *WorkflowService) Update(ctx context.Context, tenantID, id string, req SaveWorkflowRequest) (*domain.Workflow, error) {
 	w, err := s.workflows.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if w.TenantID != tenantID {
+		return nil, fmt.Errorf("forbidden")
 	}
 	w.Name = req.Name
 	w.Description = req.Description
@@ -374,10 +434,13 @@ func (s *WorkflowService) Update(ctx context.Context, id string, req SaveWorkflo
 }
 
 // SetEnabled toggles a workflow's active/disabled state.
-func (s *WorkflowService) SetEnabled(ctx context.Context, id string, enabled bool) (*domain.Workflow, error) {
+func (s *WorkflowService) SetEnabled(ctx context.Context, tenantID, id string, enabled bool) (*domain.Workflow, error) {
 	w, err := s.workflows.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if w.TenantID != tenantID {
+		return nil, fmt.Errorf("forbidden")
 	}
 	if enabled {
 		w.Status = domain.WorkflowStatusActive
@@ -390,7 +453,14 @@ func (s *WorkflowService) SetEnabled(ctx context.Context, id string, enabled boo
 	return w, nil
 }
 
-func (s *WorkflowService) Delete(ctx context.Context, id string) error {
+func (s *WorkflowService) Delete(ctx context.Context, tenantID, id string) error {
+	w, err := s.workflows.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if w.TenantID != tenantID {
+		return fmt.Errorf("forbidden")
+	}
 	return s.workflows.Delete(ctx, id)
 }
 
@@ -400,7 +470,14 @@ func (s *WorkflowService) GetRunByID(ctx context.Context, id string) (*domain.Wo
 }
 
 // GetRuns returns the N most recent execution records for a workflow.
-func (s *WorkflowService) GetRuns(ctx context.Context, workflowID string, limit int) ([]domain.WorkflowRun, error) {
+func (s *WorkflowService) GetRuns(ctx context.Context, tenantID, workflowID string, limit int) ([]domain.WorkflowRun, error) {
+	wf, err := s.workflows.FindByID(ctx, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	if wf.TenantID != tenantID {
+		return nil, fmt.Errorf("forbidden")
+	}
 	if limit <= 0 {
 		limit = 20
 	}
@@ -797,9 +874,15 @@ func (s *WorkflowService) Trigger(
 	// Step 6: Attempt agent call only if an agent_request node is in the connected flow.
 	var agentResponse map[string]interface{}
 	if hasAgentRequest {
-		agentResponse = callAgent(ctx, agentMethod, agentEndpoint, agentSecret, agentModel)
+		if agentEndpoint == "" {
+			// agent_request node found but no endpoint configured (tenant agent not set or node not connected)
+			agentResponse = map[string]interface{}{"_agentError": "agent_request node'u bağlı ancak tenant agent endpoint'i yapılandırılmamış"}
+		} else {
+			agentResponse = callAgent(ctx, agentMethod, agentEndpoint, agentSecret, agentModel)
+		}
 	} else {
-		agentResponse = map[string]interface{}{"_agentSkipped": "no agent_request node in connected flow"}
+		// No agent_request node in the connected graph — workflow is incomplete
+		agentResponse = map[string]interface{}{"_agentError": "workflow'da bağlı bir agent_request node'u yok — node bağlantılarını kontrol edin"}
 	}
 	agentData := make(map[string]interface{})
 	agentMeta := map[string]interface{}{

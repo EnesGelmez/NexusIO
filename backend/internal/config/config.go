@@ -18,7 +18,9 @@ type Config struct {
 	// JWT
 	JWTSecret   string
 	JWTTTLHours int
-
+	// Encryption – 64 hex chars (32 bytes) for AES-256-GCM field encryption.
+	// Leave empty in development to use a built-in dev fallback key.
+	EncryptionKey string
 	// CORS â€“ comma-separated list of allowed origins
 	AllowedOrigins []string
 
@@ -31,6 +33,7 @@ func Load() Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://nexus:nexus_secret@localhost:5432/nexus?sslmode=disable"),
 		JWTSecret:   getEnv("JWT_SECRET", "change-me-in-production-super-secret-key"),
 		JWTTTLHours: getEnvInt("JWT_TTL_HOURS", 24),
+		EncryptionKey: getEnv("ENCRYPTION_KEY", ""),
 		AllowedOrigins: []string{
 			getEnv("CORS_ORIGIN", "http://localhost:5173"),
 			"http://localhost:5173",

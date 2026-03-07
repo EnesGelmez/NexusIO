@@ -10,17 +10,13 @@ import { formatDate } from "../../lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
-const ROLES = [
-  { value: "TENANT_ADMIN", label: "Tenant Admin", description: "Tüm ayarlara ve kullanıcılara erişir" },
-  { value: "VIEWER",       label: "Görüntüleyici", description: "Sadece okuma yetkisi" },
-];
-
-function UserModal({ user, onClose, onSaved, token, emailDomain }) {
+function UserModal({ user, onClose, onSaved, token, emailDomain, roles }) {
   const isEdit = Boolean(user);
+  const defaultRoleId = roles.find((r) => r.name === "VIEWER")?.id ?? roles[0]?.id ?? "";
   const [form, setForm] = useState({
-    name:        user?.name  ?? "",
+    name:        user?.name    ?? "",
     emailPrefix: user?.email ? user.email.split("@")[0] : "",
-    role:        user?.role  ?? "VIEWER",
+    roleId:      user?.roleId  ?? defaultRoleId,
     password:    "",
   });
   const [saving, setSaving] = useState(false);
@@ -38,8 +34,8 @@ function UserModal({ user, onClose, onSaved, token, emailDomain }) {
     setSaving(true);
     try {
       const body = isEdit
-        ? { name: form.name, role: form.role }
-        : { name: form.name, email: fullEmail, role: form.role, password: form.password };
+        ? { name: form.name, roleId: form.roleId }
+        : { name: form.name, email: fullEmail, roleId: form.roleId, password: form.password };
 
       const res = await fetch(
         isEdit ? `${API_BASE}/api/v1/users/${user.id}` : `${API_BASE}/api/v1/users`,
@@ -112,14 +108,14 @@ function UserModal({ user, onClose, onSaved, token, emailDomain }) {
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground">Rol *</label>
             <select
-              value={form.role}
-              onChange={(e) => setForm(p => ({ ...p, role: e.target.value }))}
+              value={form.roleId}
+              onChange={(e) => setForm(p => ({ ...p, roleId: e.target.value }))}
               className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              {roles.map((r) => <option key={r.id} value={r.id}>{r.description || r.name}</option>)}
             </select>
             <p className="text-xs text-muted-foreground">
-              {ROLES.find((r) => r.value === form.role)?.description}
+              {roles.find((r) => r.id === form.roleId)?.description}
             </p>
           </div>
           {!isEdit && (
@@ -142,7 +138,7 @@ function UserModal({ user, onClose, onSaved, token, emailDomain }) {
 
 function RoleBadge({ role }) {
   if (role === "TENANT_ADMIN")
-    return <Badge variant="purple"><ShieldCheck size={11} className="mr-1" />Tenant Admin</Badge>;
+    return <Badge variant="purple"><ShieldCheck size={11} className="mr-1" />Yönetici</Badge>;
   return <Badge variant="info"><Eye size={11} className="mr-1" />Görüntüleyici</Badge>;
 }
 
@@ -152,10 +148,18 @@ export default function TenantUsersPage() {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const emailDomain = currentUserEmail.split("@")[1] ?? "firma.com";
   const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // null | "add" | { user }
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/v1/roles`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setRoles(Array.isArray(data) ? data.filter((r) => r.name !== "SUPER_ADMIN") : []))
+      .catch(() => {});
+  }, [token]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -197,10 +201,10 @@ export default function TenantUsersPage() {
   return (
     <div className="p-6 space-y-5">
       {modal === "add" && (
-        <UserModal token={token} emailDomain={emailDomain} onClose={() => setModal(null)} onSaved={load} />
+        <UserModal token={token} emailDomain={emailDomain} roles={roles} onClose={() => setModal(null)} onSaved={load} />
       )}
       {modal?.user && (
-        <UserModal token={token} emailDomain={emailDomain} user={modal.user} onClose={() => setModal(null)} onSaved={load} />
+        <UserModal token={token} emailDomain={emailDomain} roles={roles} user={modal.user} onClose={() => setModal(null)} onSaved={load} />
       )}
 
       {deleteConfirm && (

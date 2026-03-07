@@ -4,7 +4,32 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Badge } from "../../components/ui/Badge";
-import { mockMappingSettings } from "../../lib/mockData";
+
+const DEFAULT_MAPPING_SETTINGS = {
+  generalSettings: {
+    autoGenerateCustomerCode: true,
+    customerCodePrefix: "",
+    customerCodePadding: 6,
+    defaultWarehouseCode: "",
+    defaultCurrencyCode: "TRY",
+    autoCreateNonExistingCustomers: false,
+    syncFrequencyMinutes: 5,
+  },
+  orderSettings: {
+    defaultOrderType: "1",
+    defaultSalesman: "",
+    defaultDivision: "1",
+    autoApproveOrders: false,
+    orderSourceMapping: {},
+  },
+  invoiceSettings: {
+    autoCreateInvoice: false,
+    invoicePrefix: "",
+    defaultPaymentTerm: 30,
+    vatExemptionEnabled: false,
+  },
+  fieldMappings: [],
+};
 
 function ToggleSwitch({ checked, onChange, label, description }) {
   return (
@@ -106,7 +131,7 @@ function AddFieldModal({ onClose, onSave }) {
 }
 
 export default function MappingSettingsPage() {
-  const [settings, setSettings] = useState(mockMappingSettings);
+  const [settings, setSettings] = useState(DEFAULT_MAPPING_SETTINGS);
   const [activeTab, setActiveTab] = useState("general");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);

@@ -158,9 +158,10 @@ func (r *UserRepo) seed() {
 	t := now()
 	r.data["user-001"] = &domain.User{
 		ID:           "user-001",
-		Name:         "Platform YÃ¶neticisi",
+		Name:         "Platform Yoneticisi",
 		Email:        "admin@nexus.io",
 		PasswordHash: string(hash),
+		RoleID:       "role-super-admin",
 		Role:         domain.UserRoleSuperAdmin,
 		IsActive:     true,
 		CreatedAt:    t,
@@ -171,9 +172,10 @@ func (r *UserRepo) seed() {
 	r.data["user-002"] = &domain.User{
 		ID:           "user-002",
 		TenantID:     "tenant-001",
-		Name:         "ArÃ§elik Entegrasyon",
+		Name:         "Arcelik Entegrasyon",
 		Email:        "user@arcelik.com",
 		PasswordHash: string(hash2),
+		RoleID:       "role-tenant-admin",
 		Role:         domain.UserRoleTenantAdmin,
 		IsActive:     true,
 		CreatedAt:    t,
@@ -808,6 +810,123 @@ func (r *TenantAgentRepo) Delete(_ context.Context, tenantID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.data, tenantID)
+	return nil
+}
+
+// --- RoleRepo ----------------------------------------------------------------
+
+type RoleRepo struct {
+	mu   sync.RWMutex
+	data map[string]*domain.Role
+}
+
+func NewRoleRepo() *RoleRepo {
+	r := &RoleRepo{data: make(map[string]*domain.Role)}
+	r.seed()
+	return r
+}
+
+func (r *RoleRepo) seed() {
+	t := now()
+	fullSet := domain.RolePermSet{View: true, Manage: true}
+	all := domain.RolePermissions{
+		Dashboard: fullSet,
+		Users:     fullSet,
+		Logs:      fullSet,
+		Mappings:  fullSet,
+		Settings:  fullSet,
+	}
+	tenantPerms := domain.RolePermissions{
+		Dashboard: domain.RolePermSet{View: true, Manage: false},
+		Users:     domain.RolePermSet{View: true, Manage: true},
+		Logs:      domain.RolePermSet{View: true, Manage: false},
+		Mappings:  domain.RolePermSet{View: true, Manage: true},
+		Settings:  domain.RolePermSet{View: true, Manage: false},
+	}
+	viewerPerms := domain.RolePermissions{
+		Dashboard: domain.RolePermSet{View: true},
+		Logs:      domain.RolePermSet{View: true},
+	}
+
+	r.data["role-super-admin"] = &domain.Role{
+		ID: "role-super-admin", Name: "SUPER_ADMIN",
+		Description: "Platform superuser", Permissions: all,
+		IsSystem: true, CreatedAt: t, UpdatedAt: t,
+	}
+	r.data["role-tenant-admin"] = &domain.Role{
+		ID: "role-tenant-admin", Name: "TENANT_ADMIN",
+		Description: "Tenant administrator", Permissions: tenantPerms,
+		IsSystem: true, CreatedAt: t, UpdatedAt: t,
+	}
+	r.data["role-viewer"] = &domain.Role{
+		ID: "role-viewer", Name: "VIEWER",
+		Description: "Read-only access", Permissions: viewerPerms,
+		IsSystem: true, CreatedAt: t, UpdatedAt: t,
+	}
+}
+
+func (r *RoleRepo) FindAll(_ context.Context, _ string) ([]domain.Role, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]domain.Role, 0, len(r.data))
+	for _, v := range r.data {
+		cp := *v
+		out = append(out, cp)
+	}
+	return out, nil
+}
+
+func (r *RoleRepo) FindByID(_ context.Context, id string) (*domain.Role, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	v, ok := r.data[id]
+	if !ok {
+		return nil, fmt.Errorf("role %q not found", id)
+	}
+	cp := *v
+	return &cp, nil
+}
+
+func (r *RoleRepo) Create(_ context.Context, role *domain.Role) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if role.ID == "" {
+		role.ID = newID()
+	}
+	role.CreatedAt = now()
+	role.UpdatedAt = role.CreatedAt
+	cp := *role
+	r.data[role.ID] = &cp
+	return nil
+}
+
+func (r *RoleRepo) Update(_ context.Context, role *domain.Role) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.data[role.ID]
+	if !ok {
+		return fmt.Errorf("role %q not found", role.ID)
+	}
+	if existing.IsSystem {
+		return fmt.Errorf("cannot modify system role")
+	}
+	role.UpdatedAt = now()
+	cp := *role
+	r.data[role.ID] = &cp
+	return nil
+}
+
+func (r *RoleRepo) Delete(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.data[id]
+	if !ok {
+		return fmt.Errorf("role %q not found", id)
+	}
+	if existing.IsSystem {
+		return fmt.Errorf("cannot delete system role")
+	}
+	delete(r.data, id)
 	return nil
 }
 

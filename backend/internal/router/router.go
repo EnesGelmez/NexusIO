@@ -22,6 +22,7 @@ cariH *handler.CariKontrolHandler,
 agentH *handler.AgentHandler,
 tenantAgentH *handler.TenantAgentHandler,
 userH *handler.UserHandler,
+roleH *handler.RoleHandler,
 ) http.Handler {
 
 apiKeyResolver := func(ctx context.Context, key string) (string, error) {
@@ -118,6 +119,16 @@ chain(endpointH.Delete, middleware.Auth(jwtSvc)))
 // Cari Kontrol (external callers use API-Key)
 mux.HandleFunc("POST /api/v1/cari-kontrol",
 chain(cariH.Check, middleware.APIKeyAuth(apiKeyResolver)))
+
+// Roles (tenant-scoped)
+mux.HandleFunc("GET /api/v1/roles",
+	chain(roleH.List, middleware.Auth(jwtSvc)))
+mux.HandleFunc("POST /api/v1/roles",
+	chain(roleH.Create, middleware.Auth(jwtSvc), middleware.RequireRole("TENANT_ADMIN")))
+mux.HandleFunc("PUT /api/v1/roles/{id}",
+	chain(roleH.Update, middleware.Auth(jwtSvc), middleware.RequireRole("TENANT_ADMIN")))
+mux.HandleFunc("DELETE /api/v1/roles/{id}",
+	chain(roleH.Delete, middleware.Auth(jwtSvc), middleware.RequireRole("TENANT_ADMIN")))
 
 // Webhooks (external systems trigger workflows via API-Key)
 mux.HandleFunc("POST /api/v1/webhooks/{workflowId}",

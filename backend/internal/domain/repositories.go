@@ -79,3 +79,16 @@ type TenantAgentRepository interface {
 	Upsert(ctx context.Context, a *TenantAgent) error
 	Delete(ctx context.Context, tenantID string) error
 }
+
+// --- RoleRepository ----------------------------------------------------------
+
+// RoleRepository manages tenant- and system-wide roles.
+type RoleRepository interface {
+// FindAll returns system roles plus custom roles for the given tenant.
+// Pass tenantID="" to retrieve system roles only.
+FindAll(ctx context.Context, tenantID string) ([]Role, error)
+FindByID(ctx context.Context, id string) (*Role, error)
+Create(ctx context.Context, r *Role) error
+Update(ctx context.Context, r *Role) error
+Delete(ctx context.Context, id string) error
+}

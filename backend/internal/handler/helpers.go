@@ -67,9 +67,7 @@ func buildTriggerResponse(r *service.TriggerResult) map[string]interface{} {
 		if body, ok := r.Meta["_agentErrorBody"]; ok {
 			resp["agentError"] = body
 		}
-		if sent, ok := r.Meta["_agentSentBody"]; ok {
-			resp["sentPayload"] = sent
-		}
+		// sentPayload omitted from sync response — accessible via GET /api/v1/runs/{id}
 	}
 	return resp
 }
